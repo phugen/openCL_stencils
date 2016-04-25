@@ -1,201 +1,375 @@
 // the host program for boxblur_naive.cl.
 // Depends on libjpeg for loading and saving JPEG images.
 
-#include <CL/cl.hpp>
+#include <CL/cl.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "png_ops.hpp"
+#include <time.h>
+#include <string.h>
+#include <iostream>
+//#include "png_ops.hpp"
 
-#define MASK_SIZE 5 // "k" parameter for box blur
+#define MASK_SIZE 1 // "k" parameter for box blur
 #define MEM_SIZE (128)
-#define MAX_SOURCE_SIZE (0x100000) // approx. 1 MB
+#define MAX_SOURCE_SIZE (10000)
 
-#define KERNEL_PATH "./boxblur_naive.cpp"
+#define IMAGE_WIDTH 10
+#define IMAGE_HEIGHT 10
+
+#define KERNEL_PATH "./boxblur_naive.cl"
+#define KERNEL_NAME "boxblur_naive"
+
 #define INPUT_FILENAME "alarm.jpg"
 #define OUTPUT_FILENAME "alarm_blurred.jpg"
 
-using namespace cl;
+//using namespace cl;
+using namespace std;
+
+// read a file and convert it to a char*
+static char* read_source (const char *filename)
+{
+    long int
+        size = 0,
+        res  = 0;
+
+    char *src = NULL;
+
+    FILE *file = fopen(filename, "rb");
+
+    if (!file)  return NULL;
+
+    if (fseek(file, 0, SEEK_END))
+    {
+        fclose(file);
+        return NULL;
+    }
+
+    size = ftell(file);
+    if (size == 0)
+    {
+        fclose(file);
+        return NULL;
+    }
+
+    rewind(file);
+
+    src = (char *)calloc(size + 1, sizeof(char));
+    if (!src)
+    {
+        src = NULL;
+        fclose(file);
+        return src;
+    }
+
+    res = fread(src, 1, sizeof(char) * size, file);
+    if (res != sizeof(char) * size)
+    {
+        fclose(file);
+        free(src);
+
+        return src;
+    }
+
+    src[size] = '\0'; /* NULL terminated */
+    fclose(file);
+
+    return src;
+}
+
+// create a matrix with random values
+void createMatrix(uint8_t* matrix, uint8_t width, uint8_t height)
+{
+    srand (time(NULL)); // initialize random number seed
+
+    // fill matrix with random values
+    for(int i = 0; i < width * height; i++)
+    {
+        matrix[i] = rand() % 4;
+    }
+
+    // output original test matrix
+    cout << "Original data:\n";
+    for(int i = 0; i < height; i++)
+    {
+        for(int j = 0; j < width; j++)
+        {
+            cout << +matrix[i * height + j] << " ";
+        }
+
+        cout << "\n";
+    }
+    cout << "\n\n\n";
+}
 
 int main (int argc, char* argv[])
 {
     // open file containg kernel code
-    char string[MEM_SIZE];
+    char* source_str = read_source(KERNEL_PATH);
 
-    FILE *fp;
-    char fileName[] = KERNEL_PATH;
-    char *source_str;
-    long unsigned int source_size;
-
-    fp = fopen(fileName, "r");
-
-    // check if file could be loaded
-    if (!fp)
-    {
-        fprintf(stderr, "Failed to load kernel.\n");
-        exit(1);
-    }
-
-    // convert to string
-    source_str = (char*)malloc(MAX_SOURCE_SIZE);
-    source_size = fread(source_str, 1, MAX_SOURCE_SIZE, fp);
-
-    // close file
-    fclose(fp);
+    // get length of source code in bytes
+    size_t source_size = strlen(source_str) * sizeof(char);
 
     // Create OpenCL context with GPU as device
     cl_device_id device_id = NULL;
     cl_platform_id platform_id = NULL;
-
     cl_uint ret_num_devices;
     cl_uint ret_num_platforms;
     cl_int ret;
 
-    ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
-    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
-    cl_context context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
+    uint8_t width = IMAGE_WIDTH;
+    uint8_t height = IMAGE_HEIGHT;
 
-    // Compile OpenCL code
-    cl_program program_boxblur = clCreateProgramWithSource(context, 1, (const char **) &source_str, (const long unsigned int *) &source_size, &ret);
+    // get list of available platforms
+    ret = clGetPlatformIDs(1, // max. number of platforms to find
+                     &platform_id, // list of found openCL platforms
+                     &ret_num_platforms); // number of found platforms
+
+    if (ret != CL_SUCCESS)
+        cout << "clGetPlatformIDs: " << ret << "\n";
+
+
+    // get list of available devices
+    ret = clGetDeviceIDs(platform_id, // the id of the platform to use
+                   CL_DEVICE_TYPE_GPU, // type of device to use
+                   1, // max number of devices to be used
+                   &device_id, // list of found device IDs
+                   &ret_num_devices); // number of found device IDs
+
+    if (ret != CL_SUCCESS)
+       cout << "clGetDeviceIDs: " << ret << "\n";
+
+
+    // create openCL context
+    cl_context context = clCreateContext(NULL, // list of context property names - NULL == implementation-defined
+                                         1, // number of devices in list below
+                                         &device_id, // list of devices to add to context
+                                         NULL, // callback function pointer for error reporting function
+                                         NULL, // callback function arguments
+                                         &ret); // return value
+
+    if (ret != CL_SUCCESS)
+        cout << "clCreateContext: " << ret << "\n";
+
+
+    // Create program "object"
+    cl_program program_boxblur = clCreateProgramWithSource(context,
+                                                            1, // number of program strings
+                                                            (const char **) &source_str, // kernel source code
+                                                            (const size_t *) &source_size, // size of string
+                                                            &ret); // return value
+
+    if (ret != CL_SUCCESS)
+        cout << "clCreateProgramWithSource: " << ret << "\n";
+
+    // Compile openCL kernel
+    char build_params[] = {"-Werror"}; // treat warnings as errors
+
+    ret = clBuildProgram (program_boxblur, // program object
+                           1, // number of devices
+                           &device_id, // list of devices
+                           build_params, // compiler options
+                           NULL, // callback function pointer for debug output
+                           NULL); // callback function arguments
+
+
+    // if build failed, output debug info
+    if (ret != CL_SUCCESS)
+    {
+        cout << "clBuildProgram: " << ret << "\n";
+
+        size_t len = 0;
+        char* buffer;
+
+        // check length of build log string
+        clGetProgramBuildInfo(program_boxblur, // program object to request info on
+                              device_id, // lol
+                              CL_PROGRAM_BUILD_LOG, // type of information to request
+                              0, // memory pointer to which information is written
+                              NULL, // size of returned information
+                              &len); // pointer to memory where to save length of returned string
+
+        // allocate sufficient buffer - black cast magic due to compiling C with g++
+        buffer = static_cast<char*>(calloc(len, sizeof(char)));
+
+        // copy build log to buffer
+        clGetProgramBuildInfo(program_boxblur, device_id, CL_PROGRAM_BUILD_LOG, len, buffer, NULL);
+
+        // print build log
+        fprintf(stderr, "%s\n", buffer);
+
+        free(buffer);
+    }
+
+
 
     // Select device and create a command queue for it
-    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, 0, &ret);
-
-    // load JPEG file and extract raw data
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-
-    cinfo.err = jpeg_std_error(&jerr);
-    jpeg_create_decompress(&cinfo); // create libjpeg decompression object
-
-    FILE* infile;
-    if ((infile = fopen(INPUT_FILENAME, "rb")) == NULL) // load image file
-    {
-        fprintf(stderr, "can't open %s\n", FILENAME);
-        exit(1);
-    }
-
-    jpeg_stdio_src(&cinfo, infile);
-    jpeg_read_header(&cinfo, TRUE); // read header information, i.e. dimensions and store them in jpeg object
-    cinfo.out_color_space = JCS_EXT_RGBX; // fake alpha channel to create openCL-compatible 32 bit JPEG
-    jpeg_start_decompress(&cinfo); // decompress JPEG
-
-    // save image dimensions for openCL image
-    // is this correct? image_width is of type "JDIMENSION"
-    uint16_t width = cinfo.image_width;
-    uint16_t height = cinfo.image_height;
-
-    // image_components refers to the number of channels, i.e.
-    // RGB vs. RGBA vs. pixel intensity...
-    unsigned char* raw_data = unsigned char[cinfo.image_width * cinfo.image_components * cinfo.image_height];
-    unsigned char* ptr = &raw_data;
-
-    // (output_scanline keeps track of the number of scanlines
-    // extracted so far)
-    while(cinfo.output_scanline < cinfo.output_height)
-    {
-        jpeg_read_scanlines(&cinfo, &ptr, 1); // read a line
-        ptr += cinfo.image_width * cinfo.image_components; // advance by one line
-    }
-
-    // finish decompression
-    jpeg_finish_decompress(&cinfo);
-    jpeg_destroy_decompress(&cinfo);
-
-    // close file
-    fclose(infile);
-
-
-    // Create an OpenCL image and transfer data to the device
-    const cl_image_format format; // image format
-    format.image_channel_order = CL_INTENSITY; // brightness values only
-    format.image_channel_data_type = CL_UNORM_INT8; // values in [0, 255]
-
-    // create 2D image
-    cl_int error = NULL;
-    cl_mem image = clCreateImage2D (context,
-                                    CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, // flags
-                                    &format, // image format
-                                    width, // image width in pixels
-                                    height, // image height in pixels
-                                    0, // number of bytes between start of two lines ("pitch")
-                                    (void*) &raw_data, // host pointer to raw image data
-                                    &error); // error value
-
-    // Create a buffer for the result data
-    Buffer blurred = Buffer(context,
-                            CL_MEM_WRITE_ONLY, // access mode
-                            sizeof(uint8_t) * width * height); // size of buffer
+    cl_command_queue command_queue = clCreateCommandQueue(context,
+                                                            device_id,
+                                                            0, // properties -NULL is default
+                                                            &ret); // return value
+    if (ret != CL_SUCCESS)
+        cout << "clCreateCommandQueue: " << ret << "\n";
 
     // load boxblur program into kernel
     cl_kernel kernel_boxblur = clCreateKernel(program_boxblur, // program variable
-                                              "boxblur_naive", // name of kernel file without extension
+                                              KERNEL_NAME, // name of kernel main function
                                               &ret); // return value pointer
 
-    // pass arguments to kernel
-    kernel_boxblur.setArg(0, image); // image to blur
-    kernel_boxblur.setArg(1, MASK_SIZE); // size of mask in pixels
-    kernel_boxblur.setArg(2, blurred); // output image
+    if (ret != CL_SUCCESS)
+        cout << "clCreateKernel: " << ret << "\n";
 
-    // enqueue kernel and thus run it
-    ret = clEnqueueTask(command_queue, // command queue in which to enqueue task
-                        kernel_boxblur, // kernel to enqueue
-                        0, // number of events that shall be executed before this one
-                        NULL, // list of events to be executed before this one - not needed
-                        NULL); // event handle - not needed
+    // prepare kernel arguments
+    uint8_t* h_testValues = (uint8_t*) malloc (width * height * sizeof(uint8_t)); // host memory for input image
+    uint8_t* h_blurred = (uint8_t*) malloc (width * height * sizeof(uint8_t)); // host memory for output image
+
+    // initialize allocated host memory with data
+    createMatrix (h_testValues, IMAGE_WIDTH, IMAGE_HEIGHT); // create random 10x10 matrix
+    memcpy((void *) h_blurred, (void *) h_testValues, width * height * sizeof(uint8_t)); // output matrix = input matrix
+
+
+    // create openCL buffer objects
+
+    // image format
+    cl_image_format format; // image format
+    format.image_channel_order = CL_INTENSITY; // brightness values only
+    format.image_channel_data_type = CL_SIGNED_INT32; // values in [0, 4294967296]
+
+    // image description
+    cl_image_desc desc;
+    desc.image_type = CL_MEM_OBJECT_IMAGE2D; // 2D image
+    desc.image_width = (size_t) IMAGE_WIDTH;
+    desc.image_height = (size_t) IMAGE_HEIGHT;
+    desc.image_row_pitch = (size_t) 0;
+    desc.image_slice_pitch = (size_t) 0;
+    desc.num_mip_levels = (cl_uint) 0;
+    desc.num_samples = (cl_uint) 0;
+    desc.buffer = NULL; // maybe change this? <-------------------------------------
+
+    // create input image object
+    cl_mem d_image = clCreateImage (context,
+                   CL_MEM_READ_ONLY, // flags
+                   &format, // image format
+                   &desc, // image description
+                   0, // host pointer to raw image data
+                   &ret);  // pointer to return value
+
+    if (ret != CL_SUCCESS)
+        cout << "clCreateImage_INPUT: " << ret << "\n";
+
+
+    // create output image object
+    cl_mem d_blurred = clCreateImage (context,
+                   CL_MEM_WRITE_ONLY, // flags
+                   &format, // image format
+                   &desc, // image description
+                   0, // host pointer to raw image data
+                   &ret);  // pointer to return value
+
+    if (ret != CL_SUCCESS)
+        cout << "clCreateImage_OUTPUT: " << ret << "\n";
+
+
+    // enqueue buffer transfers to kernel in command queue for buffers which are READ by the kernel
+    const size_t origin[3] = {0, 0, 0}; // image origin offset
+    const size_t region[3] = {IMAGE_WIDTH, IMAGE_HEIGHT, 1}; // width, height, depth
+
+    // write input image to kernel
+    ret = clEnqueueWriteImage(command_queue,
+                               d_image, // image memory object
+                               CL_TRUE, // blocking mode
+                               origin, // origin (offset)
+                               region, // dimensions
+                               0, // row pitch - length of row in bytes, 0 default mode
+                               0, // slice pitch - length ofslices in bytes, 0 default mode
+                               h_testValues, // host pointer in memory
+                               0, // number of events before this
+                               NULL, // list of events to be executed before this
+                               NULL); // event handle to this write action
+    if (ret != CL_SUCCESS)
+        cout << "clEnqueueWriteBuffer_INPUT: " << ret << "\n";
+
+    // write output image to kernel
+    ret = clEnqueueWriteImage(command_queue, d_blurred, CL_TRUE, origin, region, 0,  0,  h_blurred, 0, NULL, NULL);
+    if (ret != CL_SUCCESS)
+        cout << "clEnqueueWriteBuffer_OUTPUT: " << ret << "\n";
+
+
+    // set kernel arguments
+    ret = clSetKernelArg(kernel_boxblur, // kernel "object"
+                   0, // argument index
+                   sizeof(cl_mem), // size of argument (in this case: image buffer)
+                   (void*) &d_image); // image to blur
+    if (ret != CL_SUCCESS)
+       cout << "clSetKernelArg_0: " << ret << "\n";
+
+    // set mask size normally - without cl_mem object creation + write buffer
+    uint8_t k = MASK_SIZE;
+    ret = clSetKernelArg(kernel_boxblur, 1, sizeof(uint8_t), (void*) &k); // size of mask in pixels
+    if (ret != CL_SUCCESS)
+        cout << "clSetKernelArg_1: " << ret << "\n";
+
+    ret = clSetKernelArg(kernel_boxblur, 2, sizeof(cl_mem), (void*) &d_blurred); // output image
+    if (ret != CL_SUCCESS)
+        cout << "clSetKernelArg_2: " << ret << "\n";
+
+    // enqueue kernel and run it
+    const size_t globalSizes[2] = {width, height};
+    const size_t localSize[2] = {1, 1};
+
+    ret = clEnqueueNDRangeKernel(command_queue, // command queue in which to enqueue task
+                                    kernel_boxblur, // kernel to enqueue
+                                    2, // number of work item dimensions
+                                    NULL, // reserved for future use
+                                    globalSizes, // number of work items per dimension
+                                    localSize, // number of work items per work group per dimension
+                                    0, // number of events that shall be executed before this one
+                                    NULL, // list of events to be executed before this one - not needed
+                                    NULL); // event handle - not needed
+
+
+    if (ret != CL_SUCCESS)
+        cout << "clEnqueueNDRangeKernel: " << ret << "\n";
+
+    // wait for command queue to finish before reading results
+    ret = clFinish(command_queue);
 
     // read from device and transfer image back to host
-    float* blurred_data = uint8_t[width * height]; // create buffer for reading data
+    ret = clEnqueueReadImage(command_queue,
+                               d_blurred, // image memory object
+                               CL_TRUE, // blocking mode
+                               origin, // origin (offset)
+                               region, // dimensions
+                               0, // row pitch - length of row in bytes, 0 default mode
+                               0, // slice pitch - length ofslices in bytes, 0 default mode
+                               h_blurred, // host pointer in memory
+                               0, // number of events before this
+                               NULL, // list of events to be executed before this
+                               NULL); // event handle to this write action
 
-    clEnqueueReadBuffer(command_queue, // command queue in which to enqueue task
-                        blurred, // read buffer
-                        CL_TRUE, // blocking read - function doesn't return until all data is read
-                        0, // offset in bytes - start from beginning
-                        sizeof(uint8_t) * width * height, // size of the data to be read
-                        (void*) blurred_data, // pointer to buffer in host memory
-                        0, // number of events that shall be executed before this one
-                        NULL,  // list of events to be executed before this one - not needed
-                        NULL);  // event handle - not needed
-
-
-
-    // write output jpeg in grayscale
-    struct jpeg_compress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-
-    cinfo.err = jpeg_std_error(&jerr);
-    jpeg_create_compress(&cinfo);
-
-    FILE* outfile;
-    if ((outfile = fopen(OUTPUT_FILENAME, "wb")) == NULL) {
-        fprintf(stderr, "can't open %s\n", OUTPUT_FILENAME);
-        exit(1);
-    }
-
-    jpeg_stdio_dest(&cinfo, outfile);
-    cinfo.image_width = width; // output width in pixels
-    cinfo.image_height = height; // output height in pixels
-    cinfo.input_components = 1;  // number color components per pixel - grayscale
-    cinfo.in_color_space = JCS_GRAYSCALE; // color space - grayscale
-
-    jpeg_set_defaults(&cinfo);
-    jpeg_start_compress(&cinfo, TRUE); // start compression
-
-    JSAMPROW row_pointer[1]; // pointer to a single row
-    int row_stride = image_width; // row width in buffer
-
-    // write scanlines line by line, top to bottom
-    while (cinfo.next_scanline < cinfo.image_height)
+    // output blurred test matrix
+    cout << "Changed data:\n";
+    for(int i = 0; i < height; i++)
     {
-        row_pointer[0] = &image_buffer[cinfo.next_scanline * row_stride];
-        jpeg_write_scanlines(&cinfo, row_pointer, 1);
+        for(int j = 0; j < width; j++)
+        {
+            cout << +h_blurred[i * height + j] << " ";
+        }
+
+        cout << "\n";
     }
 
-    // finish jpeg creation
-    jpeg_finish_compress(&cinfo);
-    jpeg_destroy_compress(&cinfo);
+    // release OpenCL resources
+   clReleaseMemObject(d_image);
+   clReleaseMemObject(d_blurred);
 
-    // close file
-    fclose(outfile);
+   clReleaseProgram(program_boxblur);
+   clReleaseKernel(kernel_boxblur);
+   clReleaseCommandQueue(command_queue);
+   clReleaseContext(context);
+
+   //release host memory
+   free(h_testValues);
+   free(h_blurred);
 
 
     return 0;

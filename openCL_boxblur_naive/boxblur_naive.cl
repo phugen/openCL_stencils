@@ -7,35 +7,35 @@ __constant sampler_t sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_T
 // OpenCL kernel program. Takes a greyscale image, represented as a 2D array
 // of integer values in a range from 0 - 255, a mask size k and writes its
 // results into the output image array.
-__kernel void boxblur (__read_only image2d_t image,
-                       __private uint8_t k,
-                       __global uint8_t* output)
+__kernel void boxblur_naive (__read_only image2d_t image,
+                             __private uchar k,
+                             __write_only image2d_t output)
 {
     // retrieve this work item's global work item id in x and y dimensions
-    const int2 pos = {get_global_id(0), get_global_id(1)};
+    const int2 pos = (int2)(get_global_id(0), get_global_id(1));
 
     // calculate new pixel value from neighbor values
     // and respect image borders by not calculating border pixels
-    uint32_t sum = 0;
+    int sum = 0;
 
-    for(int i = pos.x - k; i < pos.x + k+1; i++)
+    /*for(int i = pos.x - k; i <= pos.x + k; i++)
     {
-        for(int j = pos.y - k; j < pos.y + k+1; j++)
+        for(int j = pos.y - k; j <= pos.y + k; j++)
         {
             // add mask vector position (i, j) to position of current pixel
             // read_imagef returns a 4-vector where x is the intensity value.
-            sum += *read_imagef(image, sampler, pos + (int2)(i, j)).x
+            sum += read_imagei(image, sampler, pos + (int2)(i, j)).x;
         }
     }
 
-    // clamp to uint8_t value space
-    uint8_t pixelValue = clamp(sum, 0, 255);
-
     // divide by size of mask
-    pixelValue =/ (k * k);
+    uchar pixelValue = (int) sum / (k * k);*/
 
-    // write new pixel value to output image
-    output[pos[0]][pos[1]] = pixelValue;
+    // double value
+    int pixelValue = read_imagei(image, sampler, pos).x * 2;
+
+    // write new pixel intensity value to output image
+    write_imagei (output, pos, (int4)(pixelValue, 0, 0, 0));
 
 
     return;
