@@ -9,20 +9,27 @@
 #include <iostream>
 //#include "png_ops.hpp"
 
-#define MASK_SIZE 1 // "k" parameter for box blur
-#define MEM_SIZE (128)
-#define MAX_SOURCE_SIZE (10000)
 
+// image size
 #define IMAGE_WIDTH 10
 #define IMAGE_HEIGHT 10
 
+// "k" parameters for box blur
+#define MASK_SIZE_LEFT 1
+#define MASK_SIZE_UP 1
+#define MASK_SIZE_RIGHT 1
+#define MASK_SIZE_DOWN 1
+
+#define MEM_SIZE (128)
+#define MAX_SOURCE_SIZE (10000)
+
+// openCL paths
 #define KERNEL_PATH "./boxblur_naive.cl"
-#define KERNEL_NAME "boxblur_naive"
+#define KERNEL_NAME "boxblur_naive" // name of kernel function
 
 #define INPUT_FILENAME "alarm.jpg"
 #define OUTPUT_FILENAME "alarm_blurred.jpg"
 
-//using namespace cl;
 using namespace std;
 
 
@@ -221,16 +228,20 @@ int main (int argc, char* argv[])
 
     // prepare kernel argument host memory
     cl_int* h_testValues = (cl_int*) malloc (width * height * sizeof(cl_int)); // host memory for input image
+    cl_int* h_masksize = (cl_int*) malloc (4 * sizeof(cl_int)); // host memory for mask dimensions
     cl_int* h_blurred = (cl_int*) malloc (width * height * sizeof(cl_int)); // host memory for output image
 
     // initialize allocated host memory with data
     createMatrix (h_testValues, IMAGE_WIDTH, IMAGE_HEIGHT); // create random 10x10 matrix
     memset((void*) h_blurred, 0, width * height * sizeof(cl_int)); // initialize output matrix as 0-matrix
-    //memcpy((void *) h_blurred, (void *) h_testValues, width * height * sizeof(cl_int)); // output matrix = input matrix
+
+    h_masksize[0] = MASK_SIZE_LEFT; // set mask dimensions
+    h_masksize[1] = MASK_SIZE_UP;
+    h_masksize[2] = MASK_SIZE_RIGHT;
+    h_masksize[3] = MASK_SIZE_DOWN;
 
 
     // create openCL buffer objects
-
     // create input buffer
     cl_mem d_image = clCreateBuffer (context,
   	                                 CL_MEM_READ_ONLY, // flags - read-only in kernel
@@ -239,6 +250,12 @@ int main (int argc, char* argv[])
   	                                 &ret); // return value
     checkError(ret, "clCreateBuffer_INPUT");
 
+    cl_mem d_masksize = clCreateBuffer (context,
+                                        CL_MEM_READ_ONLY,
+                                        4 * sizeof(cl_int),
+                                        NULL,
+                                        &ret);
+    checkError(ret, "clCreateBuffer_MASKSIZE");
 
     // create output image object
     cl_mem d_blurred = clCreateBuffer (context,
@@ -261,6 +278,18 @@ int main (int argc, char* argv[])
                                NULL); // event handle to this write action
     checkError(ret, "clEnqueueWriteBuffer_INPUT");
 
+    // write masksize array to kernel
+    ret = clEnqueueWriteBuffer(command_queue,
+                               d_masksize,
+                               CL_TRUE,
+                               0,
+                               4 * sizeof(cl_int),
+                               (void*) h_masksize,
+                               0,
+                               NULL,
+                               NULL);
+    checkError(ret, "clEnqueueWriteBuffer_MASKSIZE");
+
     // write output image to kernel
     ret = clEnqueueWriteBuffer(command_queue,
                                d_blurred,
@@ -282,8 +311,7 @@ int main (int argc, char* argv[])
     checkError(ret, "clSetKernelArg_0");
 
     // set mask size normally - without cl_mem object creation + write buffer
-    cl_int k = MASK_SIZE;
-    ret = clSetKernelArg(kernel_boxblur, 1, sizeof(cl_int), (void*) &k); // size of mask in pixels
+    ret = clSetKernelArg(kernel_boxblur, 1, sizeof(cl_mem), (void*) &d_masksize); // size of mask in four dimensions
     checkError(ret, "clSetKernelArg_1");
 
     ret = clSetKernelArg(kernel_boxblur, 2, sizeof(cl_mem), (void*) &d_blurred); // output image
@@ -335,6 +363,7 @@ int main (int argc, char* argv[])
     // release OpenCL resources
    clReleaseMemObject(d_image);
    clReleaseMemObject(d_blurred);
+   clReleaseMemObject(d_masksize);
 
    clReleaseProgram(program_boxblur);
    clReleaseKernel(kernel_boxblur);
@@ -344,6 +373,7 @@ int main (int argc, char* argv[])
    //release host memory
    free(h_testValues);
    free(h_blurred);
+   free(h_masksize);
 
 
     return 0;
