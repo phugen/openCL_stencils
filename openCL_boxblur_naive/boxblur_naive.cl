@@ -1,42 +1,46 @@
 // An naive openCL implementation of a box blur filter.
 
-// define an image sampler that deals with image boundaries automatically
-// here: use value of border pixel that is closest to out-of-bounds pixel.
-__constant sampler_t sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_NEAREST;
-
-// OpenCL kernel program. Takes a greyscale image, represented as a 2D array
-// of integer values in a range from 0 - 255, a mask size k and writes its
-// results into the output image array.
-__kernel void boxblur_naive (__read_only image2d_t image,
-                             __private uchar k,
-                             __write_only image2d_t output)
+// OpenCL kernel program. Takes an intensity image represented by width * height
+// integer values. Then, it applies a box blur to the image and writes it
+// to the output buffer.
+__kernel void boxblur_naive (__global int* image,
+                             __private int k,
+                             __global int* output)
 {
     // retrieve this work item's global work item id in x and y dimensions
-    const int2 pos = (int2)(get_global_id(0), get_global_id(1));
+    int col = get_global_id(0);
+    int row = get_global_id(1);
 
-    // calculate new pixel value from neighbor values
-    // and respect image borders by not calculating border pixels
-    int sum = 0;
 
-    /*for(int i = pos.x - k; i <= pos.x + k; i++)
+    // check out-of-bounds conditions:
+    // if the mask is out of bounds in at
+    // least one direction, the work item yields.
+    if(col - k < 0 ||
+       col + k >= get_global_size(0) ||
+       row - k < 0 ||
+       row + k >= get_global_size(1))
     {
-        for(int j = pos.y - k; j <= pos.y + k; j++)
-        {
-            // add mask vector position (i, j) to position of current pixel
-            // read_imagef returns a 4-vector where x is the intensity value.
-            sum += read_imagei(image, sampler, pos + (int2)(i, j)).x;
-        }
+        return;
     }
 
-    // divide by size of mask
-    uchar pixelValue = (int) sum / (k * k);*/
+    else
+    {
+        int sum = 0; // sum of all mask elements
+        int maskElements = 0; // number of mask elements
 
-    // double value
-    int pixelValue = read_imagei(image, sampler, pos).x * 2;
+        // get sum of all elements inside the mask
+        // centered at the (col, row)
+        for(int c_row = row - k; c_row <= row + k; c_row++)
+            for(int c_col = col - k; c_col <= col + k; c_col++)
+            {
+                sum += image[c_col + c_row * get_global_size(0)]; // read pixel value at position (col, row)
+                maskElements++;
+            }
 
-    // write new pixel intensity value to output image
-    write_imagei (output, pos, (int4)(pixelValue, 0, 0, 0));
+        // divide by size of mask
+        int pixelValue = sum / maskElements;
 
-
-    return;
+        // write new pixel intensity value to output image
+        output[col + row * get_global_size(0)] = pixelValue;
+    }
 }
