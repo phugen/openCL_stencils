@@ -240,20 +240,20 @@ int main (int argc, char* argv[])
     // initialize allocated host memory with data
     createMatrix (h_testValues, IMAGE_WIDTH, IMAGE_HEIGHT); // create random 10x10 matrix
     memset((void*) h_blurred, 0, width * height * sizeof(cl_int)); // initialize output matrix as 0-matrix
-	
+
 	//set matrix measures
 	h_matrixSize[0] = IMAGE_WIDTH;
 	h_matrixSize[1] = IMAGE_HEIGHT;
-	
+
     h_masksize[0] = MASK_SIZE_LEFT; // set mask dimensions
     h_masksize[1] = MASK_SIZE_UP;
     h_masksize[2] = MASK_SIZE_RIGHT;
     h_masksize[3] = MASK_SIZE_DOWN;
-	
+
 	//set block measures
 	h_blocksize[0] = BLOCK_WIDTH;
 	h_blocksize[1] = BLOCK_HEIGHT;
-	
+
 
     // create openCL buffer objects
     // create input buffer
@@ -270,14 +270,14 @@ int main (int argc, char* argv[])
 										  NULL,
 										  &ret);
 	checkError(ret, "clCreateBuffer_MATRIXSIZE");
-	
+
     cl_mem d_masksize = clCreateBuffer (context,
                                         CL_MEM_READ_ONLY,
                                         4 * sizeof(cl_int),
                                         NULL,
                                         &ret);
     checkError(ret, "clCreateBuffer_MASKSIZE");
-	
+
 	cl_mem d_blocksize = clCreateBuffer (context,
 										  CL_MEM_READ_ONLY,
 										  2 * sizeof(cl_int),
@@ -317,7 +317,7 @@ int main (int argc, char* argv[])
                                NULL,
                                NULL);
     checkError(ret, "clEnqueueWriteBuffer_MATRIXSIZE");
-	
+
     // write masksize array to kernel
     ret = clEnqueueWriteBuffer(command_queue,
                                d_masksize,
@@ -329,7 +329,7 @@ int main (int argc, char* argv[])
                                NULL,
                                NULL);
     checkError(ret, "clEnqueueWriteBuffer_MASKSIZE");
-	
+
 	// write blocksize array to kernel
     ret = clEnqueueWriteBuffer(command_queue,
                                d_blocksize,
@@ -365,11 +365,11 @@ int main (int argc, char* argv[])
 	// set matrix size
     ret = clSetKernelArg(kernel_boxblur, 1, sizeof(cl_mem), (void*) &d_matrixSize); // size of matrix in two dimensions
     checkError(ret, "clSetKernelArg_1");
-	
+
     // set mask size normally - without cl_mem object creation + write buffer
     ret = clSetKernelArg(kernel_boxblur, 2, sizeof(cl_mem), (void*) &d_masksize); // size of mask in four dimensions
     checkError(ret, "clSetKernelArg_2");
-	
+
 	// set block size
     ret = clSetKernelArg(kernel_boxblur, 3, sizeof(cl_mem), (void*) &d_blocksize); // size of block in two dimensions
     checkError(ret, "clSetKernelArg_3");
@@ -378,9 +378,9 @@ int main (int argc, char* argv[])
     checkError(ret, "clSetKernelArg_4");
 
     // enqueue kernel and run it
-	//set number of items
-	int globalX = IMAGE_WIDTH / BLOCK_WIDTH;
-	int globalY = IMAGE_HEIGHT / BLOCK_HEIGHT;
+	// set number of work items
+	int globalX = IMAGE_WIDTH / (BLOCK_WIDTH + 1);
+	int globalY = IMAGE_HEIGHT / (BLOCK_HEIGHT + 1);
     const size_t globalSizes[2] = {globalX, globalY};
     const size_t localSize[2] = {1, 1};
 
