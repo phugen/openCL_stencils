@@ -29,8 +29,8 @@
 #define MAX_SOURCE_SIZE (10000)
 
 // openCL paths
-#define KERNEL_PATH "./boxblur_naive.cl"
-#define KERNEL_NAME "boxblur_naive" // name of kernel function
+#define KERNEL_PATH "./boxblur_blocking_local.cl"
+#define KERNEL_NAME "boxblur" // name of kernel function
 
 #define INPUT_FILENAME "alarm.jpg"
 #define OUTPUT_FILENAME "alarm_blurred.jpg"

@@ -10,7 +10,7 @@
 
 // Uses local GPU memory to compute values more efficiently within work groups.
 
-__kernel void boxblur_naive (__read_only __global int* image,
+__kernel void boxblur (__read_only __global int* image,
 							 __read_only __global int* imageSize,
                              __read_only __global int* k,
 							 __read_only __global int* blockSize,
