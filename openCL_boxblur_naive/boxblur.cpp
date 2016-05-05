@@ -1,5 +1,4 @@
-// the host program for boxblur_naive.cl.
-// Depends on libjpeg for loading and saving JPEG images.
+// the host program for boxblur_x.cl.
 
 #include <CL/cl.h>
 #include <stdio.h>
