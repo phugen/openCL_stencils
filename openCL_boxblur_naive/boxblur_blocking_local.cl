@@ -30,17 +30,10 @@ __kernel void boxblur (__read_only __global int* image,
 	int blockWidth = blockSize[0];
 	int blockHeight = blockSize[1];
 
-	// check if block violates boundary on y-axis
-	//if (blockY + blockSize[1] > imageSize[1])
-	//	blockHeight = blockY + (blockSize[1] - 1) - imageSize[1];	// reduce size of block to fit y-boundary
 
 	// calculate all positions in block
 	for (int i = 0; i < blockHeight; i++)
 	{
-		// check if block violates boundary on x-axis
-		//if (blockX + blockSize[0] > imageSize[0])
-		//	blockWidth = blockX + (blockSize[0] - 1) - imageSize[0]; // reduce size of block to fit x-boundary
-
 		for (int j = 0; j < blockWidth; j++)
 		{
 			// find position of global matrix entry to calculate
@@ -58,23 +51,24 @@ __kernel void boxblur (__read_only __global int* image,
 			int localpos;
 
 			// top left value in work group
-			if(get_local_id(0) == 0 &&
-			   get_local_id(1) == 0)
+			if(get_global_id(0) == 0 &&
+			   get_global_id(1) == 0)
 			{
-				output[col + (row * imageSize[0])] = 1;
-				for(int y = get_global_id(1) - up; y < get_global_id(1); y++)
+				output[col + (row * imageSize[0])] = 1; // DEBUG - why are all values in block filled with this value? same below
+
+
+				/*for(int y = get_global_id(1) - up; y < get_global_id(1); y++)
 					for(int x = get_global_id(0) - left; x < get_global_id(0); x++)
 					{
 						// use neutral element if position is OOB in input image
 						val = y < 0 || x < 0 || y >= imageSize[1] || x >= imageSize[0] ? 0 : image[x + (y * imageSize[0])];
 
 						// calculate position in local memory
-						//localpos = left + (x % get_local_size(0)) + (up + (y % get_local_size(1)) * (left + get_local_size(0) + right));
 						localpos = (left + x) + ((up + y) * (left + get_local_size(0) + right));
 
 						// copy neighbor values from global to local memory
 						localmem[localpos] = val;
-					}
+					}*/
 			}
 
 			// top right
@@ -82,13 +76,13 @@ __kernel void boxblur (__read_only __global int* image,
 			        get_local_id(1) == 0)
 			{
 				output[col + (row * imageSize[0])] = 2;
-				for(int y = get_global_id(1) - up; y < get_global_id(1); y++)
+				/*for(int y = get_global_id(1) - up; y < get_global_id(1); y++)
 					for(int x = get_global_id(0) + 1; x <= get_global_id(0) + right; x++)
 					{
 						val = y < 0 || x < 0 || y >= imageSize[1] || x >= imageSize[0] ? 0 : image[x + (y * imageSize[0])];
-						localpos = (x + left) + ((y + up) * (left + get_local_size(0) + right));
+						localpos = (left + x) + ((up + y) * (left + get_local_size(0) + right));
 						localmem[localpos] = val;
-					}
+					}*/
 			}
 
 			// bottom left
@@ -96,13 +90,13 @@ __kernel void boxblur (__read_only __global int* image,
 			         get_local_id(1) == get_local_size(1) - 1)
 			{
 				output[col + (row * imageSize[0])] = 3;
-				for(int y = get_global_id(1) + 1; y <= get_global_id(1) + down; y++)
+				/*for(int y = get_global_id(1) + 1; y <= get_global_id(1) + down; y++)
 					for(int x = get_global_id(0) - left; x < get_global_id(0); x++)
 					{
 						val = y < 0 || x < 0 || y >= imageSize[1] || x >= imageSize[0] ? 0 : image[x + (y * imageSize[0])];
-						localpos = (x + left) + ((y + up) * (left + get_local_size(0) + right));
+						localpos = (left + x) + ((up + y) * (left + get_local_size(0) + right));
 						localmem[localpos] = val;
-					}
+					}*/
 			}
 
 			// bottom right
@@ -114,7 +108,7 @@ __kernel void boxblur (__read_only __global int* image,
 					for(int x = get_global_id(0) + 1; x <= get_global_id(0) + right; x++)
 					{
 						val = y < 0 || x < 0 || y >= imageSize[1] || x >= imageSize[0] ? 0 : image[x + (y * imageSize[0])];
-						localpos = (x + left) + ((y + up) * (left + get_local_size(0) + right));
+						localpos = (left + x) + ((up + y) * (left + get_local_size(0) + right));
 						localmem[localpos] = val;
 					}*/
 			}
@@ -127,7 +121,7 @@ __kernel void boxblur (__read_only __global int* image,
 					for(int x = get_global_id(0) - left; x <= get_global_id(0) + right; x++) // ADD EXPLICIT CHECK HERE SO NO OVERLAP OCCURS
 					{
 						val = y < 0 || x < 0 || y >= imageSize[1] || x >= imageSize[0] ? 0 : image[x + (y * imageSize[0])];
-						localpos = (x + left) + ((y + up) * (left + get_local_size(0) + right));
+						localpos = (left + x) + ((up + y) * (left + get_local_size(0) + right));
 						localmem[localpos] = val;
 					}*/
 			}
@@ -140,7 +134,7 @@ __kernel void boxblur (__read_only __global int* image,
 					for(int x = get_global_id(0) + 1; x <= get_global_id(0) + right; x++) // ADD EXPLICIT CHECK HERE SO NO OVERLAP OCCURS
 					{
 						val = y < 0 || x < 0 || y >= imageSize[1] || x >= imageSize[0] ? 0 : image[x + (y * imageSize[0])];
-						localpos = (x + left) + ((y + up) * (left + get_local_size(0) + right));
+						localpos = (left + x) + ((up + y) * (left + get_local_size(0) + right));
 						localmem[localpos] = val;
 					}*/
 			}
@@ -153,7 +147,7 @@ __kernel void boxblur (__read_only __global int* image,
 					for(int x = get_global_id(0) - left; x <= get_global_id(0) + right; x++) // ADD EXPLICIT CHECK HERE SO NO OVERLAP OCCURS
 					{
 						val = y < 0 || x < 0 || y >= imageSize[1] || x >= imageSize[0] ? 0 : image[x + (y * imageSize[0])];
-						localpos = (x + left) + ((y + up) * (left + get_local_size(0) + right));
+						localpos = (left + x) + ((up + y) * (left + get_local_size(0) + right));
 						localmem[localpos] = val;
 					}*/
 			}
@@ -166,7 +160,7 @@ __kernel void boxblur (__read_only __global int* image,
 					for(int x = get_global_id(0) - left; x < get_global_id(0); x++) // ADD EXPLICIT CHECK HERE SO NO OVERLAP OCCURS
 					{
 						val = y < 0 || x < 0 || y >= imageSize[1] || x >= imageSize[0] ? 0 : image[x + (y * imageSize[0])];
-						localpos = (x + left) + ((y + up) * (left + get_local_size(0) + right));
+						localpos = (left + x) + ((up + y) * (left + get_local_size(0) + right));
 						localmem[localpos] = val;
 					}*/
 			}
@@ -203,27 +197,25 @@ __kernel void boxblur (__read_only __global int* image,
 			int sum = 0;
 			int val2;
 
-			/*for(int c_row = row - up; c_row <= row + down; c_row++)
-				for(int c_col = col - left; c_col <= col + right; c_col++)
+			for(int c_row = row; c_row <= up + row + down; c_row++)
+				for(int c_col = col; c_col <= left + col + right; c_col++)
 				{
 					// check if value is out of bounds - if yes, use neutral element 0
 					val2 = c_row < 0 ||
-					       c_row >= imageSize[1] ||
+					       c_row >= up + get_local_size(1) + down ||
 						   c_col < 0 ||
-						   c_col >= imageSize[0] ?
+						   c_col >= left + get_local_size(0) + right ?
 						   0 : localmem[c_col + c_row * (left + get_local_size(0) + right)];
 
 					sum += val2; // sum neighbors using local memory
-				}*/
+				}
 
 			// divide by size of mask
 			int masksize = (left + 1 + right) * (up + 1 + down); // +1 because of "middle" element
 			int pixelValue = sum / masksize;
 
 			// write new pixel intensity value to output image
-			//output[col + (row * imageSize[0])] = pixelValue;
 			//output[col + (row * imageSize[0])] = localmem[(left + get_local_id(0)) + ((up + (get_local_id(1)) * (left + get_local_size(0) + right)))];
-			//output[col + (row * imageSize[0])] = pixelValue;
 		}
 	}
 }

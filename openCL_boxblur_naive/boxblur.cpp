@@ -22,7 +22,7 @@
 // work item/group settings
 #define LOCAL_X 4
 #define LOCAL_Y 4
-#define THREAD_NUM 4 // number of threads (defines block size)
+#define THREAD_NUM 4 // number of threads (defines block size - NEEDS TO BE ADJUSTED IF BLOCKS ARE NOT USED!)
 
 #define MEM_SIZE (128)
 #define MAX_SOURCE_SIZE (10000)

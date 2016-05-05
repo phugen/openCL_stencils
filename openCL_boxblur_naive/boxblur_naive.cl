@@ -11,38 +11,39 @@ __kernel void boxblur (__read_only __global int* image,
 							 __read_write __local int* localmem, // not needed but kept so host code can stay the same
                              __write_only __global int* output)
 {
-	// extract mask dimensions for easier use
-	int left = k[0];
-	int up = k[1];
-	int right = k[2];
-	int down = k[3];
+	// retrieve this work item's global work item id in x and y dimensions
+    int col = get_global_id(0);
+    int row = get_global_id(1);
 
-	// find position in matrix
-	int col = get_global_id(0);
-	int row = get_global_id(1);
+    // extract mask dimensions for
+    // easier use
+    int left = k[0];
+    int up = k[1];
+    int right = k[2];
+    int down = k[3];
 
-	// get sum of all elements inside the mask
-	// centered at (col, row)
-	int sum = 0;
+	int sum = 0; // sum of all mask elements
 	int val;
 
-	for(int c_row = row - up; c_row <= row + down; c_row++)
-		for(int c_col = col - left; c_col <= col + right; c_col++)
-		{
+    // get sum of all elements inside the mask
+    // centered at the (col, row)
+    for(int c_row = row - up; c_row <= row + down; c_row++)
+        for(int c_col = col - left; c_col <= col + right; c_col++)
+        {
 			// check if value is out of bounds - if yes, use neutral element 0
 			val = c_row < 0 ||
-			c_row >= imageSize[1] ||
-			c_col < 0 ||
-			c_col >= imageSize[0] ?
-			0 : image[c_col + (c_row * imageSize[0])];
+				   c_row >= imageSize[1] ||
+				   c_col < 0 ||
+				   c_col >= imageSize[0] ?
+				   0 : image[c_col + c_row * imageSize[0]];
 
-			sum += val; // sum neighbors using local memory
-		}
+			sum += val;
+        }
 
-	// divide by size of mask
+    // divide by size of mask
 	int masksize = (left + 1 + right) * (up + 1 + down); // +1 because of "middle" element
 	int pixelValue = sum / masksize;
 
-	// write new pixel intensity value to output image
-	output[col + (row * imageSize[0])] = pixelValue;
+    // write new pixel intensity value to output image
+    output[col + row * get_global_size(0)] = pixelValue;
 }
