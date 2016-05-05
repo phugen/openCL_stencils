@@ -10,9 +10,9 @@
 //#include "png_ops.hpp"
 
 
-// image size
-#define IMAGE_WIDTH 10
-#define IMAGE_HEIGHT 10
+// image size (power of 2)
+#define IMAGE_WIDTH 8
+#define IMAGE_HEIGHT 8
 
 // "k" parameters for box blur
 #define MASK_SIZE_LEFT 1
@@ -20,9 +20,10 @@
 #define MASK_SIZE_RIGHT 1
 #define MASK_SIZE_DOWN 1
 
-// block size
-#define BLOCK_HEIGHT 1
-#define BLOCK_WIDTH 1
+// work item/group settings
+#define LOCAL_X 4
+#define LOCAL_Y 4
+#define THREAD_NUM 4 // number of threads (defines block size)
 
 #define MEM_SIZE (128)
 #define MAX_SOURCE_SIZE (10000)
@@ -98,15 +99,15 @@ static char* read_source (const char *filename)
 }
 
 
-// create a matrix with random values
-void createMatrix(cl_int* matrix, cl_int width, cl_int height)
+// create a matrix with random values in the range [0, maxVal)
+void createMatrix(cl_int* matrix, cl_int width, cl_int height, cl_int maxVal)
 {
     srand (time(NULL)); // initialize random number seed
 
     // fill matrix with random values
     for(int i = 0; i < width * height; i++)
     {
-        matrix[i] = rand() % 4;
+        matrix[i] = rand() % maxVal;
     }
 
     // output original test matrix
@@ -232,28 +233,29 @@ int main (int argc, char* argv[])
 
     // prepare kernel argument host memory
     cl_int* h_testValues = (cl_int*) malloc (width * height * sizeof(cl_int)); // host memory for input image
-	cl_int* h_matrixSize = (cl_int*) malloc (2 * sizeof(cl_int));	//host memory for matrix measures
+	cl_int* h_matrixSize = (cl_int*) malloc (2 * sizeof(cl_int));	// host memory for matrix dimensions
     cl_int* h_masksize = (cl_int*) malloc (4 * sizeof(cl_int)); // host memory for mask dimensions
-	cl_int* h_blocksize = (cl_int*) malloc (2 * sizeof(cl_int)); //host memory for block measure
+	cl_int* h_blocksize = (cl_int*) malloc (2 * sizeof(cl_int)); // host memory for block size
     cl_int* h_blurred = (cl_int*) malloc (width * height * sizeof(cl_int)); // host memory for output image
 
     // initialize allocated host memory with data
-    createMatrix (h_testValues, IMAGE_WIDTH, IMAGE_HEIGHT); // create random 10x10 matrix
+    createMatrix (h_testValues, IMAGE_WIDTH, IMAGE_HEIGHT, 4); // create random matrix
     memset((void*) h_blurred, 0, width * height * sizeof(cl_int)); // initialize output matrix as 0-matrix
 
-	//set matrix measures
+	// set matrix dimensions
 	h_matrixSize[0] = IMAGE_WIDTH;
 	h_matrixSize[1] = IMAGE_HEIGHT;
 
-    h_masksize[0] = MASK_SIZE_LEFT; // set mask dimensions
+    // set mask dimensions
+    h_masksize[0] = MASK_SIZE_LEFT;
     h_masksize[1] = MASK_SIZE_UP;
     h_masksize[2] = MASK_SIZE_RIGHT;
     h_masksize[3] = MASK_SIZE_DOWN;
 
-	//set block measures
-	h_blocksize[0] = BLOCK_WIDTH;
-	h_blocksize[1] = BLOCK_HEIGHT;
-
+    // set block sizes based on number
+    // of available threads
+	h_blocksize[0] = (IMAGE_WIDTH) / THREAD_NUM;
+	h_blocksize[1] = (IMAGE_HEIGHT) / THREAD_NUM;
 
     // create openCL buffer objects
     // create input buffer
@@ -363,26 +365,36 @@ int main (int argc, char* argv[])
     checkError(ret, "clSetKernelArg_0");
 
 	// set matrix size
-    ret = clSetKernelArg(kernel_boxblur, 1, sizeof(cl_mem), (void*) &d_matrixSize); // size of matrix in two dimensions
+    ret = clSetKernelArg(kernel_boxblur, 1, sizeof(cl_mem), (void*) &d_matrixSize); // size of matrix in XY dimensions
     checkError(ret, "clSetKernelArg_1");
 
     // set mask size normally - without cl_mem object creation + write buffer
-    ret = clSetKernelArg(kernel_boxblur, 2, sizeof(cl_mem), (void*) &d_masksize); // size of mask in four dimensions
+    ret = clSetKernelArg(kernel_boxblur, 2, sizeof(cl_mem), (void*) &d_masksize); // size of mask in NSWE dimensions
     checkError(ret, "clSetKernelArg_2");
 
 	// set block size
-    ret = clSetKernelArg(kernel_boxblur, 3, sizeof(cl_mem), (void*) &d_blocksize); // size of block in two dimensions
+    ret = clSetKernelArg(kernel_boxblur, 3, sizeof(cl_mem), (void*) &d_blocksize); // size of block in XY dimensions
     checkError(ret, "clSetKernelArg_3");
 
-    ret = clSetKernelArg(kernel_boxblur, 4, sizeof(cl_mem), (void*) &d_blurred); // output image
+    // implicitly allocate local memory by passing "NULL" instead of cl_mem object
+    ret = clSetKernelArg(kernel_boxblur, 4, (size_t) (MASK_SIZE_LEFT + LOCAL_X + MASK_SIZE_RIGHT) * (MASK_SIZE_UP + LOCAL_Y + MASK_SIZE_DOWN), NULL);
     checkError(ret, "clSetKernelArg_4");
+
+    ret = clSetKernelArg(kernel_boxblur, 5, sizeof(cl_mem), (void*) &d_blurred); // output image
+    checkError(ret, "clSetKernelArg_5");
 
     // enqueue kernel and run it
 	// set number of work items
-	int globalX = IMAGE_WIDTH / (BLOCK_WIDTH + 1);
-	int globalY = IMAGE_HEIGHT / (BLOCK_HEIGHT + 1);
-    const size_t globalSizes[2] = {globalX, globalY};
-    const size_t localSize[2] = {1, 1};
+	int globalX = IMAGE_WIDTH / h_blocksize[0];
+	int globalY = IMAGE_HEIGHT / h_blocksize[1];
+    const size_t globalSizes[2] = {globalX, globalY}; // number of work items per dimension
+    const size_t localSize[2] = {LOCAL_X, LOCAL_Y}; // number of work items per work group per dimension
+
+    cout << "Image size is X:" << IMAGE_WIDTH << " Y:" << IMAGE_HEIGHT << "\n";
+    cout << "Number of threads is " << THREAD_NUM << "\n";
+    cout << "Block sizes are X:" << h_blocksize[0] << " Y:" << h_blocksize[1] << "\n";
+    cout << "Number of work items per dimension: X:" << globalX << " Y:" << globalY << "\n";
+    cout << "Number of work items per work group per dimension: X:" << LOCAL_X << " Y:" << LOCAL_Y << "\n\n";
 
     ret = clEnqueueNDRangeKernel(command_queue, // command queue in which to enqueue task
                                     kernel_boxblur, // kernel to enqueue
@@ -425,18 +437,22 @@ int main (int argc, char* argv[])
 
     // release OpenCL resources
    clReleaseMemObject(d_image);
-   clReleaseMemObject(d_blurred);
+   clReleaseMemObject(d_matrixSize);
    clReleaseMemObject(d_masksize);
+   clReleaseMemObject(d_blocksize);
+   clReleaseMemObject(d_blurred);
 
    clReleaseProgram(program_boxblur);
    clReleaseKernel(kernel_boxblur);
    clReleaseCommandQueue(command_queue);
    clReleaseContext(context);
 
-   //release host memory
+   // release host memory
    free(h_testValues);
-   free(h_blurred);
+   free(h_matrixSize);
    free(h_masksize);
+   free(h_blocksize);
+   free(h_blurred);
 
 
     return 0;
